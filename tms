@@ -1,0 +1,165 @@
+#!/bin/bash
+
+TS_SEARCH_PATHS=("$HOME/Projects/" "$HOME/.config" "$HOME/dev/fco" "$HOME/dev/fco/develop" "$HOME/dev/fco/" "$HOME/dev/code" "$HOME/dev/phd" ) 
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--create)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                SESSION_NAME="$2"
+                shift 2
+            else
+                echo "Error: -c requires a session name" >&2
+                exit 1
+            fi
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-c|--create <session_name>]"
+            echo "  -c, --create <session_name>  Create/attach to session with given name"
+            echo "  -h, --help                   Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Use -h for help" >&2
+            exit 1
+            ;;
+    esac
+done
+
+is_tmux_running() {
+    tmux_running=$(pgrep tmux)
+
+    if [[ -z $TMUX ]] && [[ -z $tmux_running ]]; then
+        return 1
+    fi
+    return 0
+}
+
+switch_to() {
+    if [[ -z $TMUX ]]; then
+        tmux attach-session -t "$1"
+    else
+        tmux switch-client -t "$1"
+    fi
+}
+
+has_session() {
+    tmux list-sessions | grep -q "^$1:"
+}
+
+get_pane_id() {
+    local session_idx="$1"
+    local split_type="$2"
+    init_pane_cache
+    grep "^${session_idx}:${split_type}:" "$PANE_CACHE_FILE" | cut -d: -f3
+}
+
+set_pane_id() {
+    local session_idx="$1"
+    local split_type="$2"
+    local pane_id="$3"
+    init_pane_cache
+
+    # Remove existing entry if it exists
+    grep -v "^${session_idx}:${split_type}:" "$PANE_CACHE_FILE" > "${PANE_CACHE_FILE}.tmp" 2>/dev/null || true
+    mv "${PANE_CACHE_FILE}.tmp" "$PANE_CACHE_FILE"
+
+    # Add new entry
+    echo "${session_idx}:${split_type}:${pane_id}" >> "$PANE_CACHE_FILE"
+}
+
+find_dirs() {
+
+    for entry in "${TS_SEARCH_PATHS[@]}"; do
+        if [[ "$entry" =~ ^([^:]+):([0-9]+)$ ]]; then
+            path="${BASH_REMATCH[1]}"
+            depth="${BASH_REMATCH[2]}"
+        else
+            path="$entry"
+        fi
+
+        [[ -d "$path" ]] && find "$path" -mindepth 1 -maxdepth "${depth:-${TS_MAX_DEPTH:-1}}" -path '*/.git' -prune -o -type d -print # | sed 's|^|[DIRS] |'
+    done
+	
+    # list TMUX sessions
+    if [[ -n "${TMUX}" ]]; then
+        current_session=$(tmux display-message -p '#S')
+        tmux list-sessions -F "[TMUX] #{session_name}" 2>/dev/null | grep -vFx "[TMUX] $current_session"
+    else
+        tmux list-sessions -F "[TMUX] #{session_name}" 2>/dev/null
+    fi
+}
+
+hydrate() {
+    if [[ ! -z $session_cmd ]]; then
+        log "skipping hydrate for $1 -- using \"$session_cmd\" instead"
+        return
+    elif [ -f "$2/.tmux-sessionizer" ]; then
+        log "sourcing(local) $2/.tmux-sessionizer"
+        tmux send-keys -t "$1" "source $2/.tmux-sessionizer" c-M
+    elif [ -f "$HOME/.tmux-sessionizer" ]; then
+        log "sourcing(global) $HOME/.tmux-sessionizer"
+        tmux send-keys -t "$1" "source $HOME/.tmux-sessionizer" c-M
+    fi
+}
+
+main() {
+    # If session name is provided via -c flag, use it directly
+    if [[ -n "$SESSION_NAME" ]]; then
+		selected_name="$SESSION_NAME"
+        
+        # Check if the session name corresponds to an existing directory
+        for entry in "${TS_SEARCH_PATHS[@]}"; do
+            if [[ "$entry" =~ ^([^:]+):([0-9]+)$ ]]; then
+                path="${BASH_REMATCH[1]}"
+                depth="${BASH_REMATCH[2]}"
+            else
+                path="$entry"
+            fi
+            
+            # Look for exact match or directory with matching basename
+            if [[ -d "$path/$selected_name" ]]; then
+                selected="$path/$selected_name"
+                break
+            elif [[ "$(basename "$path")" == "$selected_name" ]]; then
+                selected="$path"
+                break
+            fi
+        done
+        
+        # If no matching directory found, use current directory
+        if [[ -z "$selected" ]]; then
+            selected="$(pwd)"
+        fi
+    else
+        # Original fzf behavior
+        selected=$(find_dirs | fzf --height 40% --no-scrollbar --tac --no-mouse --pointer='>' --no-info  --marker='>' --prompt="TMUX Session> ")
+
+        if [[ -z $selected ]]; then
+            exit 0
+        fi
+
+        if [[ "$selected" =~ ^\[TMUX\]\ (.+)$ ]]; then
+            selected="${BASH_REMATCH[1]}"
+        fi
+
+        selected_name=$(basename "$selected" | tr . _)
+    fi
+
+    if ! is_tmux_running; then
+        tmux new-session -ds "$selected_name" -c "$selected"
+        hydrate "$selected_name" "$selected"
+    fi
+
+    if ! has_session "$selected_name"; then
+        tmux new-session -ds "$selected_name" -c "$selected"
+        hydrate "$selected_name" "$selected"
+    fi
+
+    switch_to "$selected_name"
+}
+
+main "$@"
+
