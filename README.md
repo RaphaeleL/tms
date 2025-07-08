@@ -64,4 +64,5 @@ These can be customized by editing the `TS_SEARCH_PATHS` variable inside the scr
 
 ## Author
 
-This script was designed to streamline `tmux` session workflows based on directory structures and session names.
+- [ThePrimeagen/tmux-sessionizer/](https://github.com/ThePrimeagen/tmux-sessionizer/)
+- Raphaele Salvatore Licciardo
