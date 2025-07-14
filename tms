@@ -1,10 +1,23 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/Projects/" "$HOME/.config" "$HOME/dev/fco" "$HOME/dev/fco/develop" "$HOME/dev/fco/" "$HOME/dev/code" "$HOME/dev/phd" ) 
+TS_SEARCH_PATHS=("$HOME/Projects/" "$HOME/.config" "$HOME/dev/fco" "$HOME/dev/code" "$HOME/dev/phd" ) 
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -k|--kill)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                tmux kill-session -t $2
+                exit 0
+            else
+                echo "Error: -k requires a session name" >&2
+                exit 1
+            fi
+            ;;
+        -l|--ls)
+            tmux ls | awk -F : '{printf "[TMUX] %s\n", $1}'
+            exit 0
+            ;;
         -c|--create)
             if [[ -n "$2" && "$2" != -* ]]; then
                 SESSION_NAME="$2"
@@ -15,8 +28,10 @@ while [[ $# -gt 0 ]]; do
             fi
             ;;
         -h|--help)
-            echo "Usage: $0 [-c|--create <session_name>]"
+            echo "Usage: $0 [options]"
+            echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -c, --create <session_name>  Create/attach to session with given name"
+            echo "  -l, --ls                     List all tmux sessions"
             echo "  -h, --help                   Show this help message"
             exit 0
             ;;
