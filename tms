@@ -150,7 +150,7 @@ main() {
         fi
     else
         # Original fzf behavior
-        selected=$(find_dirs | fzf --height 40% --no-scrollbar --tac --no-mouse --pointer='>' --no-info  --marker='>' --prompt="TMUX Session> ")
+        selected=$(find_dirs | fzf --height 40% --border --no-scrollbar --tac --no-mouse --pointer='> ' --no-info --prompt='TMUX Session> ' --marker=' ' --color=fg:-1,bg:-1,hl:-1,fg+:-1,bg+:-1,hl+:-1,info:-1,prompt:-1,pointer:-1,marker:-1,spinner:-1,header:-1)
 
         if [[ -z $selected ]]; then
             exit 0
