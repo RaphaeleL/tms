@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/Projects/" "$HOME/.config" "$HOME/dev/fco" "$HOME/dev/code" "$HOME/dev/phd" ) 
+TS_SEARCH_PATHS=("$HOME/Projects" "$HOME/.config" ) 
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
