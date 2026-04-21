@@ -1,6 +1,8 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/.config" ) 
+TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/workspace/sandbox" "$HOME/.config" ) 
+
+FULLSCREEN_FZF=0
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -13,6 +15,10 @@ while [[ $# -gt 0 ]]; do
                 echo "Error: -k requires a session name" >&2
                 exit 1
             fi
+            ;;
+        -f|--full)
+            FULLSCREEN_FZF=1
+            shift
             ;;
         -l|--ls)
             tmux ls | awk -F : '{printf "[TMUX] %s\n", $1}'
@@ -33,6 +39,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -c, --create <session_name>  Create/attach to session with given name"
             echo "  -l, --ls                     List all tmux sessions"
             echo "  -h, --help                   Show this help message"
+            echo "  -f, --full                   Show the FZF in Fullscreen"
             exit 0
             ;;
         *)
@@ -149,8 +156,12 @@ main() {
             selected="$(pwd)"
         fi
     else
-        # Original fzf behavior
-        selected=$(find_dirs | fzf --height 40% --border --no-scrollbar --tac --no-mouse --pointer='> ' --no-info --prompt='TMUX Session> ' --marker=' ' --color=fg:-1,bg:-1,hl:-1,fg+:-1,bg+:-1,hl+:-1,info:-1,prompt:-1,pointer:-1,marker:-1,spinner:-1,header:-1)
+        # Original fzf behaviour
+        if [[ $FULLSCREEN_FZF -eq 1 ]]; then
+            selected=$(find_dirs | fzf --border --no-scrollbar --tac --no-mouse --pointer='> ' --no-info --prompt='TMUX Session> ' --marker=' ' --color=fg:-1,bg:-1,hl:-1,fg+:-1,bg+:-1,hl+:-1,info:-1,prompt:-1,pointer:-1,marker:-1,spinner:-1,header:-1)
+        else
+            selected=$(find_dirs | fzf --height 40% --border --no-scrollbar --tac --no-mouse --pointer='> ' --no-info --prompt='TMUX Session> ' --marker=' ' --color=fg:-1,bg:-1,hl:-1,fg+:-1,bg+:-1,hl+:-1,info:-1,prompt:-1,pointer:-1,marker:-1,spinner:-1,header:-1)
+        fi
 
         if [[ -z $selected ]]; then
             exit 0
