@@ -4,6 +4,23 @@ TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/workspace/sandbox" "$HOME/.config" )
 
 FULLSCREEN_FZF=0
 
+restore() {
+    tmux start-server
+    local count=0
+    local dimensions="$(stty size 2>/dev/null | awk '{ printf "-x%d -y%d", $2, $1 }')"
+    while IFS=$'\t' read session_name window_name dir; do
+        if [[ -d "$dir" && $window_name != "log" && $window_name != "man" ]]; then
+        if tmux has-session -t "$session_name" 2>/dev/null; then
+            tmux new-window -d -t "$session_name:" -n "$window_name" -c "$dir"
+        else
+            cd "$dir" && tmux new-session -d -s "$session_name" -n "$window_name" $dimensions
+            count=$(( count + 1 ))
+        fi
+        fi
+    done < ~/.tmux-session
+    echo "restored $count sessions"
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -20,8 +37,37 @@ while [[ $# -gt 0 ]]; do
             FULLSCREEN_FZF=1
             shift
             ;;
+        -r|--restore)
+            restore
+            exit 0
+            ;;
+        -x|--remove)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                session="$2"
+                tmp="$(mktemp)"
+
+                grep -v "^${session}\t" ~/.tmux-session > "$tmp"
+                mv "$tmp" ~/.tmux-session
+                # tmux kill-session -t "$session" 2>/dev/null
+
+                exit 0
+            else
+                echo "Error: -x requires a session name" >&2
+                exit 1
+            fi
+            exit 0
+            ;;
+        -g|--get)
+            cat ~/.tmux-session
+            exit 0
+            ;;
+        -s|--save)
+            d=$'\t'
+            tmux list-windows -a -F "#S${d}#W${d}#{pane_current_path}" > ~/.tmux-session
+            exit 0
+            ;;
         -l|--ls)
-            tmux ls | awk -F : '{printf "[TMUX] %s\n", $1}'
+            tmux ls | awk -F \( '{printf "%s\n", $1}'
             exit 0
             ;;
         -c|--create)
@@ -37,7 +83,11 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -c, --create <session_name>  Create/attach to session with given name"
-            echo "  -l, --ls                     List all tmux sessions"
+            echo "  -l, --ls                     List all active tmux sessions"
+            echo "  -g, --get                    List all saved tmux sessions"
+            echo "  -r, --restore                Restore all saved tmux sessions"
+            echo "  -s, --save                   Save all active tmux sessions"
+            echo "  -x, --remove                 Remove a session from the storage"
             echo "  -h, --help                   Show this help message"
             echo "  -f, --full                   Show the FZF in Fullscreen"
             exit 0
