@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/workspace/sandbox" "$HOME/.config" ) 
+TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/workspace/sandbox" "$HOME/Desktop") 
 
 FULLSCREEN_FZF=0
 
@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--restore)
             restore
+            echo 'Restored Tmux Sessions'
             exit 0
             ;;
         -x|--remove)
@@ -64,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         -s|--save)
             d=$'\t'
             tmux list-windows -a -F "#S${d}#W${d}#{pane_current_path}" > ~/.tmux-session
+            echo 'Saved Tmux Sessions:'
             exit 0
             ;;
         -l|--ls)
