@@ -39,18 +39,16 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--restore)
             restore
-            echo 'Restored Tmux Sessions'
+            printf 'Restored %s Sessions with %s Windows\n' $(tmux ls | wc -l) $(cat ~/.tmux-session | wc -l)
             exit 0
             ;;
         -x|--remove)
             if [[ -n "$2" && "$2" != -* ]]; then
                 session="$2"
                 tmp="$(mktemp)"
-
                 grep -v "^${session}\t" ~/.tmux-session > "$tmp"
                 mv "$tmp" ~/.tmux-session
                 # tmux kill-session -t "$session" 2>/dev/null
-
                 exit 0
             else
                 echo "Error: -x requires a session name" >&2
@@ -65,7 +63,8 @@ while [[ $# -gt 0 ]]; do
         -s|--save)
             d=$'\t'
             tmux list-windows -a -F "#S${d}#W${d}#{pane_current_path}" > ~/.tmux-session
-            echo 'Saved Tmux Sessions:'
+            printf 'Saved %s Sessions with %s Windows\n' $(tmux ls | wc -l) $(cat ~/.tmux-session | wc -l)
+            # tmux ls | awk -F \( '{printf "- %s\n", $1}'
             exit 0
             ;;
         -l|--ls)
