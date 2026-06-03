@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/workspace/sandbox" "$HOME/Desktop") 
+TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop") 
 
 FULLSCREEN_FZF=0
 
