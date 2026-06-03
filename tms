@@ -18,7 +18,6 @@ restore() {
         fi
         fi
     done < ~/.tmux-session
-    echo "restored $count sessions"
 }
 
 # Parse command line arguments
