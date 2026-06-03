@@ -23,6 +23,10 @@ restore() {
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -n|--new)
+            SESSION_NAME="shell-$(pwd | md5sum | cut -c1-8)"
+            shift
+            ;;
         -k|--kill)
             if [[ -n "$2" && "$2" != -* ]]; then
                 tmux kill-session -t $2
@@ -83,10 +87,11 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -c, --create <session_name>  Create/attach to session with given name"
-            echo "  -l, --ls                     List all active tmux sessions"
-            echo "  -g, --get                    List all saved tmux sessions"
-            echo "  -r, --restore                Restore all saved tmux sessions"
-            echo "  -s, --save                   Save all active tmux sessions"
+            echo "  -n, --new                    Create/attach to session with a random name"
+            echo "  -l, --ls                     List all active Tmux sessions"
+            echo "  -g, --get                    List all saved Tmux sessions"
+            echo "  -r, --restore                Restore all saved Tmux sessions"
+            echo "  -s, --save                   Save all active Tmux sessions"
             echo "  -x, --remove                 Remove a session from the storage"
             echo "  -h, --help                   Show this help message"
             echo "  -f, --full                   Show the FZF in Fullscreen"
