@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop") 
+TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop")
 
 FULLSCREEN_FZF=0
 
@@ -59,6 +59,31 @@ while [[ $# -gt 0 ]]; do
             fi
             exit 0
             ;;
+        # -p|--prepare)
+        #     windows=(dev git build test )
+        #
+        #     # Rename current window to first entry
+        #     tmux rename-window "${windows[0]}"
+        #
+        #     # Create remaining windows
+        #     for name in "${windows[@]:1}"; do
+        #         if tmux list-windows -F '#W' | grep -qx "$name"; then
+        #             echo "Window '$name' already exists."
+        #         else
+        #             tmux new-window -n "$name"
+        #             echo "Created window '$name'."
+        #         fi
+        #     done
+        #
+        #     # Run commands
+        #     tmux send-keys -t git "git status" C-m
+        #
+        #     # Return to first window
+        #     tmux select-window -t "${windows[0]}"
+        #
+        #     echo "Setup tmux as an IDE."
+        #     exit 0
+        #     ;;
         -g|--get)
             cat ~/.tmux-session
             exit 0
@@ -85,14 +110,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             echo "Usage: $0 [options]"
-            echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -c, --create <session_name>  Create/attach to session with given name"
             echo "  -n, --new                    Create/attach to session with a random name"
             echo "  -l, --ls                     List all active Tmux sessions"
             echo "  -g, --get                    List all saved Tmux sessions"
             echo "  -r, --restore                Restore all saved Tmux sessions"
             echo "  -s, --save                   Save all active Tmux sessions"
+            # echo "  -p, --prepare                Prepare the current Tmux session for dev"
             echo "  -x, --remove                 Remove a session from the storage"
+            echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -h, --help                   Show this help message"
             echo "  -f, --full                   Show the FZF in Fullscreen"
             exit 0
@@ -159,7 +185,7 @@ find_dirs() {
 
         [[ -d "$path" ]] && find "$path" -mindepth 1 -maxdepth "${depth:-${TS_MAX_DEPTH:-1}}" -path '*/.git' -prune -o -type d -print # | sed 's|^|[DIRS] |'
     done
-	
+
     # list TMUX sessions
     if [[ -n "${TMUX}" ]]; then
         current_session=$(tmux display-message -p '#S')
@@ -186,7 +212,7 @@ main() {
     # If session name is provided via -c flag, use it directly
     if [[ -n "$SESSION_NAME" ]]; then
 		selected_name="$SESSION_NAME"
-        
+
         # Check if the session name corresponds to an existing directory
         for entry in "${TS_SEARCH_PATHS[@]}"; do
             if [[ "$entry" =~ ^([^:]+):([0-9]+)$ ]]; then
@@ -195,7 +221,7 @@ main() {
             else
                 path="$entry"
             fi
-            
+
             # Look for exact match or directory with matching basename
             if [[ -d "$path/$selected_name" ]]; then
                 selected="$path/$selected_name"
@@ -205,7 +231,7 @@ main() {
                 break
             fi
         done
-        
+
         # If no matching directory found, use current directory
         if [[ -z "$selected" ]]; then
             selected="$(pwd)"
@@ -243,4 +269,3 @@ main() {
 }
 
 main "$@"
-
