@@ -24,7 +24,7 @@ restore() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         -n|--new)
-            SESSION_NAME="shell-$(pwd | md5sum | cut -c1-8)"
+            SESSION_NAME="session-$(pwd | md5sum | cut -c1-8)"
             shift
             ;;
         -k|--kill)
@@ -59,31 +59,27 @@ while [[ $# -gt 0 ]]; do
             fi
             exit 0
             ;;
-        # -p|--prepare)
-        #     windows=(dev git build test )
-        #
-        #     # Rename current window to first entry
-        #     tmux rename-window "${windows[0]}"
-        #
-        #     # Create remaining windows
-        #     for name in "${windows[@]:1}"; do
-        #         if tmux list-windows -F '#W' | grep -qx "$name"; then
-        #             echo "Window '$name' already exists."
-        #         else
-        #             tmux new-window -n "$name"
-        #             echo "Created window '$name'."
-        #         fi
-        #     done
-        #
-        #     # Run commands
-        #     tmux send-keys -t git "git status" C-m
-        #
-        #     # Return to first window
-        #     tmux select-window -t "${windows[0]}"
-        #
-        #     echo "Setup tmux as an IDE."
-        #     exit 0
-        #     ;;
+        -p|--prepare)
+            windows=(dev git build test llm)
+            i=0
+            while IFS= read -r id; do
+                (( i >= ${#windows[@]} )) && break
+                tmux rename-window -t "$id" "${windows[$i]}"
+                ((i++))
+            done < <(tmux list-windows -F '#I')
+
+            # Create any missing windows
+            while (( i < ${#windows[@]} )); do
+                tmux new-window -a -n "${windows[$i]}"
+                ((i++))
+            done
+
+            tmux send-keys -t git "git status" C-m
+            tmux select-window -t dev
+
+            echo "Setup tmux as an IDE."
+            exit 0
+            ;;
         -g|--get)
             cat ~/.tmux-session
             exit 0
@@ -116,7 +112,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -g, --get                    List all saved Tmux sessions"
             echo "  -r, --restore                Restore all saved Tmux sessions"
             echo "  -s, --save                   Save all active Tmux sessions"
-            # echo "  -p, --prepare                Prepare the current Tmux session for dev"
+            echo "  -p, --prepare                Prepare the current Tmux session for dev"
             echo "  -x, --remove                 Remove a session from the storage"
             echo "  -k, --kill <session_name>    Kill a session with a given name"
             echo "  -h, --help                   Show this help message"
