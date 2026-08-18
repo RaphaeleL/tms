@@ -1,68 +1,86 @@
-# TMS 
+# tms
 
-> Inspired by [ThePrimeagen/tmux-sessionizer/](https://github.com/ThePrimeagen/tmux-sessionizer/)
-
-A powerful Bash utility to create, attach, or switch between `tmux` sessions based on a directory or predefined session name. It enhances developer workflows by combining `tmux` with fuzzy directory search.
-
-## Features
-
-* Fuzzy finder (`fzf`) to select a directory or existing `tmux` session.
-* Create or attach to `tmux` sessions named after directory basenames.
-* Optional hydration via `.tmux-sessionizer` script inside project directories.
-* Supports custom session name creation via `-c` flag.
-* Caches pane IDs for future enhancements (not yet actively used).
+`tms` is a small Bash tmux session manager: use it to find a project, create or
+switch to its session, and persist a window/pane layout without restoring
+arbitrary running commands.
 
 ## Requirements
 
-* [`tmux`](https://github.com/tmux/tmux)
-* [`fzf`](https://github.com/junegunn/fzf)
-* Bash
+- Bash 4+
+- [tmux](https://github.com/tmux/tmux)
+- [fzf](https://github.com/junegunn/fzf) only for the interactive picker
+- `find`, `awk` and `mktemp`
 
 ## Installation
 
-Place the script somewhere in your `$PATH`, e.g., `~/.local/bin/tms`, and make it executable:
+Place both `tms` and `tms-core` in the same directory in `$PATH`:
 
 ```bash
-chmod +x ~/.local/bin/tms
+chmod +x tms tms-core
+install -d "$HOME/.local/bin"
+install -m 755 tms tms-core "$HOME/.local/bin"
 ```
 
 ## Usage
 
 ```bash
-tms # will run fzf to filter tmux sessions 
-tms -c <session_name> # will use <session_name>
+tms                       # choose a project or live session with FZF
+tms my-project            # resolve a project name in configured search paths
+tms .                     # create/switch to the current project's session
+tms ~/code/project        # create/switch to an exact directory
+tms --create scratch      # attach/create a named session in the current directory
+tms --save                # atomically save current tmux pane/window state
+tms --restore             # idempotently reconcile saved state
+tms --prepare             # create missing configured windows in the current session
 ```
 
-### Options
-
-* `-c <session_name>`, `--create <session_name>`
-  Create or switch to a `tmux` session with the given name. Tries to find a matching directory in search paths.
-
-* `-h`, `--help`
-  Show help and usage information.
-
-If no arguments are passed, a fuzzy picker (`fzf`) will open to select from:
-
-* Directories within defined search paths
-* Existing `tmux` sessions (excluding the current one, if inside tmux)
+Run `tms --help` for the complete command reference. `--forget NAME` removes
+saved state only; `--remove` remains a compatibility alias. `--kill NAME` asks
+for confirmation when stdin is interactive; pass `--force` to skip it.
 
 ## Configuration
 
-The script searches for directories inside the following paths (in order):
+The optional user configuration is shell code at
+`$XDG_CONFIG_HOME/tms/config` (default: `$HOME/.config/tms/config`). It is
+loaded before CLI arguments, so CLI arguments have final precedence.
 
 ```bash
-$HOME/Projects/
-$HOME/.config
-$HOME/dev/fco
-$HOME/dev/fco/develop
-$HOME/dev/fco/
-$HOME/dev/code
-$HOME/dev/phd
+# ~/.config/tms/config
+TS_SEARCH_PATHS=("$HOME/workspace:2" "$HOME/Desktop:1")
+TMS_WINDOWS=(editor server test git)
+TMS_GIT_STARTUP='git status' # only used by --prepare
 ```
 
-These can be customized by editing the `TS_SEARCH_PATHS` variable inside the script.
+A search path may end in `:depth`; otherwise `TMS_DEFAULT_SEARCH_DEPTH` (1) is
+used. Set `TMUX_SESSION_FILE` to override the state-file location. The state
+file defaults to `$XDG_CONFIG_HOME/tms/sessions` and has a version header.
 
-## Author
+### Project configuration
 
-- [ThePrimeagen/tmux-sessionizer/](https://github.com/ThePrimeagen/tmux-sessionizer/)
-- Raphaele Salvatore Licciardo
+A project may define `.tmux-sessionizer`. It is shell code and therefore must
+be treated as untrusted repository content. It is **not loaded by default**.
+Opt in per invocation with `TMS_TRUST_PROJECT_CONFIG=1 tms .`.
+
+The file receives `PROJECT_ROOT` and `TMS_SESSION`, and may call:
+
+```bash
+# .tmux-sessionizer
+tms_window "editor" "$PROJECT_ROOT"
+tms_window "server" "$PROJECT_ROOT"
+tms_pane "server" "npm run dev" vertical 50
+```
+
+`tms_window` creates a missing named window. `tms_pane` creates a pane in an
+existing window and executes its explicitly declared command. Project config
+is applied when a session is first created and with `--prepare`; it is not run
+while restoring saved state.
+
+## Persistence and safety
+
+`--save` writes a temporary file, validates it, and atomically replaces the
+state file. It records pane paths, indexes, and layouts, but never saves or
+restarts arbitrary pane commands. `--restore` creates only missing resources,
+so repeated restores do not duplicate windows or panes. Missing state files,
+missing tmux servers, and missing saved directories are handled gracefully.
+
+Use `TMS_DEBUG=1 tms …` (or `tms --debug …`) for diagnostics on stderr.
