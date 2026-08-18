@@ -277,7 +277,8 @@ Usage: tms [open] [PROJECT]
        tms COMMAND [ARGUMENT] [OPTIONS]
 
 Open a project directly, or run tms with no arguments to choose one with FZF.
-A project may be a directory, ., or an unambiguous name in TS_SEARCH_PATHS.
+A project may be a directory or an unambiguous name in TS_SEARCH_PATHS. Use
+`.` or `new` for a deterministic shell-<directory-hash> session.
 
 Commands:
   open [PROJECT]          Open/create a project session (the default)
@@ -303,7 +304,7 @@ Compatibility aliases: --create/-c, --new/-n, --ls/-l, --save/-s,
 Examples:
   tms                     Choose a project or live session
   tms open api            Open project named api (or create session api)
-  tms .                   Open the current directory
+  tms .                   Create/attach the current directory's shell-<hash> session
   tms new                 Create/attach a deterministic shell-<hash> session
   tms kill api --force    Kill api without a prompt
   tms save && tms restore Save and later reconcile state
@@ -334,6 +335,7 @@ main() {
             kill|-k|--kill) shift; [[ $# -gt 0 ]] || die "kill requires NAME"; PROJECT_ARGUMENT=$1; action=kill; command_seen=1 ;;
             forget|remove|-x|--remove|--forget) shift; [[ $# -gt 0 ]] || die "forget requires NAME"; PROJECT_ARGUMENT=$1; action=forget; command_seen=1 ;;
             --) shift; [[ $# -le 1 ]] || die "only one project may be supplied"; PROJECT_ARGUMENT=${1:-}; break ;;
+            .) [[ $action == open && -z "$PROJECT_ARGUMENT" ]] || die "unexpected argument: ."; command_seen=1; action=direct; session=$(current_directory_session); dir=$(pwd) ;;
             -*) die "unknown option: $1 (run 'tms help')" ;;
             *)
                 [[ $action == open && -z "$PROJECT_ARGUMENT" ]] || die "unexpected argument: $1"
