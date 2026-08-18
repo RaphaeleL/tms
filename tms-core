@@ -20,11 +20,29 @@ log() {
 say() { printf 'tms: %s\n' "$*" >&2; }
 die() { say "$*"; exit 1; }
 
+create_default_config() {
+    [[ -e "$TMS_CONFIG_FILE" ]] && return
+    mkdir -p "$TMS_CONFIG_DIR" || die "cannot create config directory: $TMS_CONFIG_DIR"
+    chmod 700 "$TMS_CONFIG_DIR" 2>/dev/null || true
+    umask 077
+    cat > "$TMS_CONFIG_FILE" <<'EOF'
+# tms configuration
+#
+# Directories are searched by `tms <project>` and shown by the FZF picker.
+# Add as many entries as you like. Append :DEPTH to control search depth,
+# for example: "$HOME/workspace:2".
+TS_SEARCH_PATHS=(
+  "$HOME"
+)
+EOF
+    chmod 600 "$TMS_CONFIG_FILE" 2>/dev/null || true
+    say "created config at $TMS_CONFIG_FILE"
+}
+
 load_config() {
-    if [[ -f "$TMS_CONFIG_FILE" ]]; then
-        # shellcheck source=/dev/null
-        source "$TMS_CONFIG_FILE"
-    fi
+    create_default_config
+    # shellcheck source=/dev/null
+    source "$TMS_CONFIG_FILE"
 }
 
 require() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but was not found in PATH."; }
