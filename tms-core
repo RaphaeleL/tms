@@ -272,7 +272,7 @@ prepare_session() {
 switch_to() { [[ -n "${TMUX:-}" ]] && tmux switch-client -t "$1" || tmux attach-session -t "$1"; }
 
 show_help() {
-    cat <<EOF
+    cat <<'EOF'
 Usage: tms [open] [PROJECT]
        tms COMMAND [ARGUMENT] [OPTIONS]
 
@@ -309,9 +309,8 @@ Examples:
   tms kill api --force    Kill api without a prompt
   tms save && tms restore Save and later reconcile state
 
-Configuration: $TMS_CONFIG_FILE
-State file:    $TMUX_SESSION_FILE
 EOF
+    printf 'Configuration: %s\nState file:    %s\n' "$TMS_CONFIG_FILE" "$TMUX_SESSION_FILE"
 }
 
 main() {
