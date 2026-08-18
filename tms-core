@@ -53,14 +53,14 @@ state_version() {
 save_sessions() {
     require_tmux
     ensure_private_parent
-    local tmp count
+    local tmp count d=$'\t'
     tmp=$(mktemp "${TMUX_SESSION_FILE}.tmp.XXXXXX") || die "cannot create temporary state file"
     trap 'rm -f "$tmp"' RETURN
     chmod 600 "$tmp"
     printf '# tms-state-version: 3\n' > "$tmp"
     # Commands deliberately are not persisted or restarted. list-panes -a exits
     # non-zero when no server exists, which is an empty state rather than an error.
-    tmux list-panes -a -F '#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{window_layout}' >> "$tmp" 2>/dev/null || true
+    tmux list-panes -a -F "#S${d}#I${d}#W${d}#P${d}#{pane_current_path}${d}#{window_layout}" >> "$tmp" 2>/dev/null || true
     awk -F '\t' 'NR == 1 { next } NF != 6 { exit 1 }' "$tmp" || die "generated state is invalid"
     mv -f "$tmp" "$TMUX_SESSION_FILE" || die "cannot replace state file"
     chmod 600 "$TMUX_SESSION_FILE" 2>/dev/null || true
