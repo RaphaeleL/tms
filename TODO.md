@@ -23,6 +23,22 @@ implementation. Features deliberately not implemented include restoring arbitrar
 pane commands, automatic execution of untrusted project config, and removal of
 stale windows during restore.
 
+## Remaining priorities
+
+1. **Test harness:** add repeatable isolated-tmux tests for save/restore,
+   `prepare`, no-server behavior, names/paths with special characters, and
+   config discovery.
+2. **Input/state hardening:** define an encoding or explicitly reject tabs and
+   newlines in persisted fields; add corrupt-state coverage.
+3. **Config precedence:** document and implement a clear environment → user
+   config → project config → CLI precedence model.
+4. **Project-config trust UX:** retain the current opt-in but consider a
+   per-project trust registry instead of requiring an environment variable.
+5. **Managed-session policy:** decide whether save should persist every live
+   tmux session or only sessions created by `tms`.
+6. **Polish:** run ShellCheck/shfmt, improve no-server `list` messaging, and
+   decide whether FZF actions, recents, and cleanup justify their complexity.
+
 Current strengths:
 
 * FZF-based project/session selection
@@ -427,7 +443,7 @@ Use tmux layout information such as:
 
 ---
 
-## [x] Persist panes
+## [ ] Persist panes
 
 Eventually save:
 
@@ -1299,7 +1315,7 @@ CLI
 
 # P3 — Session Reconciliation
 
-## [x] Define desired state vs actual state
+## [ ] Define desired state vs actual state
 
 Eventually `tms` should think in terms of:
 
