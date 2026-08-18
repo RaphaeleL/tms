@@ -310,7 +310,8 @@ Examples:
   tms save && tms restore Save and later reconcile state
 
 EOF
-    printf 'Configuration: %s\nState file:    %s\n' "$TMS_CONFIG_FILE" "$TMUX_SESSION_FILE"
+    [[ -f "$TMS_CONFIG_FILE" ]] && printf 'User config: %s\n' "$TMS_CONFIG_FILE"
+    printf 'State file: %s\n' "$TMUX_SESSION_FILE"
 }
 
 main() {
