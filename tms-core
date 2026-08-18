@@ -6,7 +6,7 @@ TMS_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tms"
 TMS_CONFIG_FILE="${TMS_CONFIG_FILE:-$TMS_CONFIG_DIR/config}"
 TMUX_SESSION_FILE="${TMUX_SESSION_FILE:-$TMS_CONFIG_DIR/sessions}"
 TMS_DEFAULT_SEARCH_DEPTH="${TMS_DEFAULT_SEARCH_DEPTH:-1}"
-if [[ ! ${TS_SEARCH_PATHS+x} ]]; then TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop"); fi
+# TS_SEARCH_PATHS is defined by the generated/user configuration file.
 if [[ ! ${TMS_WINDOWS+x} ]]; then TMS_WINDOWS=(dev git build test llm); fi
 TMS_GIT_STARTUP="${TMS_GIT_STARTUP:-}"
 FULLSCREEN_FZF=0
