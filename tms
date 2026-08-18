@@ -1,4 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Compatibility launcher. The implementation lives beside this entry point.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/tms-core" "$@"
 
 TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop")
 

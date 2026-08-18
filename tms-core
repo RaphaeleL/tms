@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -uo pipefail
+
+TMS_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tms"
+TMS_CONFIG_FILE="${TMS_CONFIG_FILE:-$TMS_CONFIG_DIR/config}"
+TMUX_SESSION_FILE="${TMUX_SESSION_FILE:-$TMS_CONFIG_DIR/sessions}"
+TMS_DEFAULT_SEARCH_DEPTH="${TMS_DEFAULT_SEARCH_DEPTH:-1}"
+if [[ ! ${TS_SEARCH_PATHS+x} ]]; then TS_SEARCH_PATHS=("$HOME/workspace" "$HOME/Desktop"); fi
+if [[ ! ${TMS_WINDOWS+x} ]]; then TMS_WINDOWS=(dev git build test llm); fi
+TMS_GIT_STARTUP="${TMS_GIT_STARTUP:-}"
+FULLSCREEN_FZF=0
+FORCE=0
+PROJECT_ARGUMENT=""
+
+log() {
+  [[ "${TMS_DEBUG:-0}" == 1 ]] && printf '[tms DEBUG] %s\n' "$*" >&2
+}
+
+say() { printf 'tms: %s\n' "$*" >&2; }
+die() { say "$*"; exit 1; }
+
+load_config() {
+  if [[ -f "$TMS_CONFIG_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$TMS_CONFIG_FILE"
+  fi
+}
+
+require() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but was not found in PATH."; }
+require_tmux() { require tmux; }
+has_session() { tmux has-session -t "$1" 2>/dev/null; }
+has_server() { tmux list-sessions >/dev/null 2>&1; }
+
+window_index_by_name() {
+  tmux list-windows -t "$1" -F '#{window_index}\t#{window_name}' 2>/dev/null |
+    awk -F '\t' -v name="$2" '$2 == name { print $1; exit }'
+}
+has_window() { [[ -n "$(window_index_by_name "$1" "$2")" ]]; }
+
+ensure_private_parent() {
+  mkdir -p "$(dirname "$TMUX_SESSION_FILE")" || die "cannot create state directory"
+  chmod 700 "$(dirname "$TMUX_SESSION_FILE")" 2>/dev/null || true
+}
+
+state_version() {
+  [[ -f "$TMUX_SESSION_FILE" ]] || return 1
+  local header
+  IFS= read -r header < "$TMUX_SESSION_FILE" || return 1
+  [[ "$header" == '# tms-state-version: 3' ]] && printf '3\n' || printf 'legacy\n'
+}
+
+save_sessions() {
+  require_tmux
+  ensure_private_parent
+  local tmp count
+  tmp=$(mktemp "${TMUX_SESSION_FILE}.tmp.XXXXXX") || die "cannot create temporary state file"
+  trap 'rm -f "$tmp"' RETURN
+  chmod 600 "$tmp"
+  printf '# tms-state-version: 3\n' > "$tmp"
+  # Commands deliberately are not persisted or restarted. list-panes -a exits
+  # non-zero when no server exists, which is an empty state rather than an error.
+  tmux list-panes -a -F '#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{window_layout}' >> "$tmp" 2>/dev/null || true
+  awk -F '\t' 'NR == 1 { next } NF != 6 { exit 1 }' "$tmp" || die "generated state is invalid"
+  mv -f "$tmp" "$TMUX_SESSION_FILE" || die "cannot replace state file"
+  chmod 600 "$TMUX_SESSION_FILE" 2>/dev/null || true
+  trap - RETURN
+  count=$(awk 'NR > 1 { n++ } END { print n + 0 }' "$TMUX_SESSION_FILE")
+  printf 'Saved %s pane records to %s\n' "$count" "$TMUX_SESSION_FILE"
+}
+
+ensure_window() {
+  local session=$1 index=$2 name=$3 dir=$4 existing
+  existing=$(window_index_by_name "$session" "$name")
+  [[ -n "$existing" ]] && { printf '%s\n' "$existing"; return; }
+  if ! has_session "$session"; then
+    tmux new-session -d -s "$session" -n "$name" -c "$dir" || return 1
+  elif tmux list-windows -t "$session" -F '#{window_index}' | awk -v index="$index" '$0 == index { found=1 } END { exit !found }'; then
+    tmux new-window -d -t "$session:" -n "$name" -c "$dir" || return 1
+  else
+    tmux new-window -d -t "$session:$index" -n "$name" -c "$dir" || return 1
+  fi
+  window_index_by_name "$session" "$name"
+}
+
+ensure_panes() {
+  local session=$1 window=$2 wanted=$3 dir=$4 count
+  count=$(tmux list-panes -t "$session:$window" -F '#{pane_index}' 2>/dev/null | awk 'END { print NR }')
+  while ((count <= wanted)); do
+    tmux split-window -d -t "$session:$window" -c "$dir" || return 1
+    count=$((count + 1))
+  done
+}
+
+restore_v3() {
+  local session index window pane dir layout restored=0 skipped=0
+  tmux start-server >/dev/null 2>&1 || true
+  while IFS=$'\t' read -r session index window pane dir layout; do
+    [[ "$session" == \#* || -z "$session" ]] && continue
+    if [[ ! -d "$dir" ]]; then
+      say "skipping $session:$window: directory does not exist: $dir"
+      skipped=$((skipped + 1)); continue
+    fi
+    ensure_window "$session" "$index" "$window" "$dir" >/dev/null || die "cannot create $session:$window"
+    ensure_panes "$session" "$window" "$pane" "$dir" || die "cannot create panes for $session:$window"
+    [[ -z "$layout" ]] || tmux select-layout -t "$session:$window" "$layout" >/dev/null 2>&1 || true
+    tmux set-option -t "$session" @tms_managed 1 >/dev/null 2>&1 || true
+    restored=$((restored + 1))
+  done < "$TMUX_SESSION_FILE"
+  printf 'Restored %s pane records%s\n' "$restored" "$([[ $skipped -gt 0 ]] && printf ' (some entries were skipped)')"
+}
+
+restore_legacy() {
+  local session window dir index=0
+  say "migrating legacy state format; save again to write version 3"
+  tmux start-server >/dev/null 2>&1 || true
+  while IFS=$'\t' read -r session window dir; do
+    [[ -n "$session" && -n "$window" && -d "$dir" ]] || continue
+    ensure_window "$session" "$index" "$window" "$dir" >/dev/null || die "cannot create $session:$window"
+    index=$((index + 1))
+  done < "$TMUX_SESSION_FILE"
+}
+
+restore_sessions() {
+  require_tmux
+  if [[ ! -s "$TMUX_SESSION_FILE" ]]; then
+    printf 'Nothing to restore: %s does not exist or is empty.\n' "$TMUX_SESSION_FILE"; return
+  fi
+  case $(state_version) in
+    3) restore_v3 ;;
+    legacy) restore_legacy ;;
+    *) die "unsupported state-file version in $TMUX_SESSION_FILE" ;;
+  esac
+}
+
+forget_session() {
+  local session=$1 tmp
+  [[ -f "$TMUX_SESSION_FILE" ]] || { printf 'No saved state at %s.\n' "$TMUX_SESSION_FILE"; return; }
+  tmp=$(mktemp "${TMUX_SESSION_FILE}.tmp.XXXXXX") || die "cannot create temporary state file"
+  trap 'rm -f "$tmp"' RETURN
+  awk -F '\t' -v session="$session" 'NR == 1 || $1 != session' "$TMUX_SESSION_FILE" > "$tmp" || die "cannot update state"
+  chmod 600 "$tmp" && mv -f "$tmp" "$TMUX_SESSION_FILE" || die "cannot replace state file"
+  trap - RETURN
+  printf 'Forgot saved session %s.\n' "$session"
+}
+
+kill_session() {
+  local session=$1
+  has_session "$session" || die "session does not exist: $session"
+  if [[ $FORCE -ne 1 && -t 0 ]]; then
+    printf 'Kill tmux session %s? [y/N] ' "$session" >&2
+    local answer; IFS= read -r answer
+    [[ "$answer" == y || "$answer" == Y ]] || return
+  fi
+  tmux kill-session -t "$session"
+}
+
+sanitize_session_name() {
+  local name=${1##*/}
+  name=${name//./_}; name=${name//:/_}; name=${name// /_}
+  printf '%s\n' "$name"
+}
+
+project_root() {
+  local dir=$1 root
+  root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && { printf '%s\n' "$root"; return; }
+  printf '%s\n' "$dir"
+}
+
+resolve_project() {
+  local input=$1 entry path depth candidate matches=()
+  if [[ -d "$input" ]]; then project_root "$(cd "$input" && pwd)"; return; fi
+  for entry in "${TS_SEARCH_PATHS[@]}"; do
+    if [[ "$entry" =~ ^(.+):([0-9]+)$ ]]; then path=${BASH_REMATCH[1]}; depth=${BASH_REMATCH[2]}; else path=$entry; depth=$TMS_DEFAULT_SEARCH_DEPTH; fi
+    [[ -d "$path" ]] || continue
+    [[ -d "$path/$input" ]] && matches+=("$path/$input")
+    while IFS= read -r candidate; do [[ "${candidate##*/}" == "$input" ]] && matches+=("$candidate"); done < <(find "$path" -mindepth 1 -maxdepth "$depth" -type d -not -path '*/.git/*' 2>/dev/null)
+  done
+  (( ${#matches[@]} == 1 )) || { (( ${#matches[@]} == 0 )) && die "project not found: $input" || die "project name is ambiguous: $input"; }
+  project_root "${matches[0]}"
+}
+
+find_dirs() {
+  local entry path depth current
+  for entry in "${TS_SEARCH_PATHS[@]}"; do
+    if [[ "$entry" =~ ^(.+):([0-9]+)$ ]]; then path=${BASH_REMATCH[1]}; depth=${BASH_REMATCH[2]}; else path=$entry; depth=$TMS_DEFAULT_SEARCH_DEPTH; fi
+    [[ -d "$path" ]] && find "$path" -mindepth 1 -maxdepth "$depth" -type d -not -path '*/.git/*' -print 2>/dev/null | awk '{ print "[DIR] " $0 }'
+  done
+  current=$(tmux display-message -p '#S' 2>/dev/null || true)
+  tmux list-sessions -F '[TMUX] #{session_name}' 2>/dev/null | awk -v current="[TMUX] $current" '$0 != current' || true
+}
+
+preview() {
+  local selected=${1#\[DIR\] }
+  if [[ "$selected" == '[TMUX] '* ]]; then tmux list-windows -t "${selected#\[TMUX\] }" -F '#{window_index}: #{window_name}  #{pane_current_path}' 2>/dev/null; return; fi
+  printf '%s\n\n' "$selected"
+  if git -C "$selected" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf 'Git: %s\n' "$(git -C "$selected" branch --show-current 2>/dev/null)"
+    git -C "$selected" status --short 2>/dev/null | head -20
+  fi
+}
+
+select_project() {
+  require fzf
+  local args=(--border --no-scrollbar --no-mouse --pointer='> ' --no-info --prompt='tms> ' --marker=' ' --preview "$0 --preview {}")
+  (( FULLSCREEN_FZF == 1 )) || args+=(--height 40%)
+  find_dirs | fzf "${args[@]}" || true
+}
+
+ensure_session() {
+  local session=$1 dir=$2
+  if ! has_session "$session"; then
+    tmux new-session -d -s "$session" -c "$dir" || die "cannot create session $session"
+    tmux set-option -t "$session" @tms_managed 1 >/dev/null 2>&1 || true
+    apply_project_config "$session" "$dir"
+  fi
+}
+
+tms_window() {
+  local name=$1 dir=${2:-$PROJECT_ROOT}
+  has_window "$TMS_SESSION" "$name" || tmux new-window -d -t "$TMS_SESSION:" -n "$name" -c "$dir"
+}
+
+tms_pane() {
+  local window=$1 command=$2 direction=${3:-vertical} size=${4:-}
+  has_window "$TMS_SESSION" "$window" || die "project config refers to missing window: $window"
+  local args=(-d -t "$TMS_SESSION:$window" -c "$PROJECT_ROOT")
+  [[ "$direction" == horizontal ]] && args+=(-h) || args+=(-v)
+  [[ -n "$size" ]] && args+=(-p "$size")
+  tmux split-window "${args[@]}" "$command"
+}
+
+apply_project_config() {
+  local session=$1 root=$2 config="$root/.tmux-sessionizer"
+  [[ -f "$config" ]] || return
+  [[ "${TMS_TRUST_PROJECT_CONFIG:-0}" == 1 ]] || { say "not loading $config (set TMS_TRUST_PROJECT_CONFIG=1 to opt in)"; return; }
+  TMS_SESSION=$session PROJECT_ROOT=$root source "$config"
+}
+
+prepare_session() {
+  [[ -n "${TMUX:-}" ]] || die "--prepare must be run inside tmux"
+  local session; session=$(tmux display-message -p '#S')
+  local root; root=$(tmux display-message -p -t "$session" '#{pane_current_path}')
+  TMS_SESSION=$session PROJECT_ROOT=$root
+  local window
+  for window in "${TMS_WINDOWS[@]}"; do tms_window "$window" "$root"; done
+  apply_project_config "$session" "$root"
+  [[ -n "${TMS_GIT_STARTUP:-}" ]] && has_window "$session" git && tmux send-keys -t "$session:git" "$TMS_GIT_STARTUP" C-m
+  tmux select-window -t "$session:${TMS_WINDOWS[0]}" 2>/dev/null || true
+  printf 'Prepared tmux session %s.\n' "$session"
+}
+
+switch_to() { [[ -n "${TMUX:-}" ]] && tmux switch-client -t "$1" || tmux attach-session -t "$1"; }
+
+show_help() {
+  cat <<EOF
+Usage: tms [project] [options]
+
+Open a directory or project name, or choose one with FZF. Inside tmux this
+switches the client; outside tmux it attaches.
+
+Options:
+  -c, --create NAME       Create/attach NAME (using the current directory)
+  -n, --new               Create/attach the deterministic current-directory session
+  -l, --ls                List live sessions
+  -s, --save              Atomically save windows, panes, indexes, and layouts
+  -r, --restore           Idempotently reconcile saved state
+  -g, --get               Print the state file, if any
+  -x, --remove NAME       Alias for --forget NAME
+      --forget NAME       Remove NAME from saved state; leave it live
+  -k, --kill NAME         Kill a live session (asks on a TTY)
+      --force             Do not ask before --kill
+  -p, --prepare           Create missing configured windows in this tmux session
+  -f, --full              Use a full-screen FZF picker
+      --debug             Emit diagnostics to stderr
+  -h, --help              Show this help
+
+Configuration: $TMS_CONFIG_FILE
+State file:    $TMUX_SESSION_FILE
+Search paths use TS_SEARCH_PATHS=("/path:depth" ...). Project configuration is
+.tmux-sessionizer; it only runs when TMS_TRUST_PROJECT_CONFIG=1 is set.
+EOF
+}
+
+main() {
+  load_config
+  local action=open selected session dir
+  while (( $# )); do
+    case $1 in
+      -h|--help) show_help; return ;; -f|--full) FULLSCREEN_FZF=1 ;; --debug) TMS_DEBUG=1 ;;
+      --force) FORCE=1 ;; -s|--save) action=save ;; -r|--restore) action=restore ;;
+      -g|--get) action=get ;; -l|--ls) action=list ;; -p|--prepare) action=prepare ;;
+      -n|--new) PROJECT_ARGUMENT=$(pwd) ;;
+      -c|--create) shift; [[ $# -gt 0 ]] || die "$1 requires a name"; session=$1; dir=$(pwd); action=direct ;;
+      -k|--kill) shift; [[ $# -gt 0 ]] || die "--kill requires a name"; PROJECT_ARGUMENT=$1; action=kill ;;
+      -x|--remove|--forget) shift; [[ $# -gt 0 ]] || die "--forget requires a name"; PROJECT_ARGUMENT=$1; action=forget ;;
+      --preview) shift; preview "${1:-}"; return ;;
+      -*) die "unknown option: $1" ;;
+      *) [[ -z "$PROJECT_ARGUMENT" ]] || die "only one project may be supplied"; PROJECT_ARGUMENT=$1 ;;
+    esac
+    shift
+  done
+  case $action in
+    save) save_sessions; return ;; restore) restore_sessions; return ;;
+    get) [[ -f "$TMUX_SESSION_FILE" ]] && cat "$TMUX_SESSION_FILE" || printf 'No saved state at %s.\n' "$TMUX_SESSION_FILE"; return ;;
+    list) require_tmux; tmux list-sessions -F '#{session_name}' 2>/dev/null || true; return ;;
+    forget) forget_session "$PROJECT_ARGUMENT"; return ;;
+    kill) require_tmux; kill_session "$PROJECT_ARGUMENT"; return ;;
+    prepare) require_tmux; prepare_session; return ;;
+  esac
+  require_tmux
+  if [[ $action == direct ]]; then ensure_session "$session" "$dir"; switch_to "$session"; return; fi
+  if [[ -n "$PROJECT_ARGUMENT" ]]; then dir=$(resolve_project "$PROJECT_ARGUMENT"); else selected=$(select_project); [[ -n "$selected" ]] || return; if [[ "$selected" == '[TMUX] '* ]]; then switch_to "${selected#\[TMUX\] }"; return; fi; dir=${selected#\[DIR\] }; fi
+  session=$(sanitize_session_name "$dir"); log "project=$dir session=$session"
+  ensure_session "$session" "$dir"; switch_to "$session"
+}
+
+main "$@"
