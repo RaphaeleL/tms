@@ -4,6 +4,25 @@
 
 Turn `tms` from a useful personal tmux sessionizer into a robust, fast, project-aware tmux session manager.
 
+## Status — implemented
+
+The reliability, persistence, core project configuration, CLI, and basic FZF
+preview milestones are now implemented in `tms-core`.
+
+- [x] Idempotent restore of sessions, windows, panes, indexes, and layouts.
+- [x] Versioned, atomically written state with restrictive permissions.
+- [x] User-managed search paths in `$XDG_CONFIG_HOME/tms/config`; a default
+  configuration is created with `TS_SEARCH_PATHS=("$HOME")` when absent.
+- [x] Opt-in `.tmux-sessionizer` support with `tms_window` and `tms_pane`.
+- [x] Positional projects, `shell-<directory-hash>` current-directory sessions,
+  subcommands, legacy option aliases, confirmation-aware kill, and debug mode.
+- [x] FZF previews for Git directories and tmux sessions.
+
+The unchecked items below are remaining work, not descriptions of the current
+implementation. Features deliberately not implemented include restoring arbitrary
+pane commands, automatic execution of untrusted project config, and removal of
+stale windows during restore.
+
 Current strengths:
 
 * FZF-based project/session selection
@@ -31,7 +50,7 @@ Main areas to improve:
 
 # P0 — Correctness & Reliability
 
-## [ ] Make `restore` idempotent
+## [x] Make `restore` idempotent
 
 Current behavior can duplicate windows every time `tms --restore` is executed.
 
@@ -75,7 +94,7 @@ Rules:
 
 ---
 
-## [ ] Replace `pgrep tmux` with tmux-native checks
+## [x] Replace `pgrep tmux` with tmux-native checks
 
 Current:
 
@@ -105,7 +124,7 @@ tmux list-sessions
 
 ---
 
-## [ ] Simplify `has_session`
+## [x] Simplify `has_session`
 
 Current implementation:
 
@@ -132,7 +151,7 @@ has_session() {
 
 ---
 
-## [ ] Eliminate unsafe regex matching
+## [x] Eliminate unsafe regex matching
 
 Current code contains patterns such as:
 
@@ -157,7 +176,7 @@ Session names can contain characters meaningful to regular expressions.
 
 ---
 
-## [ ] Make `--save` atomic
+## [x] Make `--save` atomic
 
 Current:
 
@@ -194,7 +213,7 @@ mv "$tmp" "$TMUX_SESSION_FILE"
 
 ---
 
-## [ ] Handle missing session state file
+## [x] Handle missing session state file
 
 Commands should behave sensibly when:
 
@@ -213,7 +232,7 @@ doesn't exist.
 
 ---
 
-## [ ] Handle empty tmux server
+## [x] Handle empty tmux server
 
 Commands like:
 
@@ -232,7 +251,7 @@ can fail when no server exists.
 
 ---
 
-## [ ] Fix non-TTY restore behavior
+## [x] Fix non-TTY restore behavior
 
 Current:
 
@@ -253,7 +272,7 @@ can fail or return unusable information outside an interactive terminal.
 
 # P1 — Session State
 
-## [ ] Introduce a proper state-file variable
+## [x] Introduce a proper state-file variable
 
 Instead of hardcoding:
 
@@ -275,7 +294,7 @@ TMUX_SESSION_FILE="${TMUX_SESSION_FILE:-$HOME/.tmux-session}"
 
 ---
 
-## [ ] Define configurable search paths
+## [x] Define configurable search paths
 
 Current:
 
@@ -309,7 +328,7 @@ with optional configuration file:
 
 ---
 
-## [ ] Improve session persistence format
+## [x] Improve session persistence format
 
 Current format:
 
@@ -343,7 +362,7 @@ window layout
 
 ---
 
-## [ ] Version the state format
+## [x] Version the state format
 
 Add a format/version identifier.
 
@@ -364,7 +383,7 @@ For example:
 
 # P1 — Window & Pane Restoration
 
-## [ ] Persist window indexes
+## [x] Persist window indexes
 
 Current save format only stores:
 
@@ -391,7 +410,7 @@ Restore windows at their original indexes where possible.
 
 ---
 
-## [ ] Persist pane layouts
+## [x] Persist pane layouts
 
 Use tmux layout information such as:
 
@@ -408,7 +427,7 @@ Use tmux layout information such as:
 
 ---
 
-## [ ] Persist panes
+## [x] Persist panes
 
 Eventually save:
 
@@ -447,7 +466,7 @@ Do not blindly restart arbitrary processes during restore.
 
 # P1 — Project Configuration
 
-## [ ] Formalize `.tmux-sessionizer`
+## [x] Formalize `.tmux-sessionizer`
 
 Current `hydrate()` supports:
 
@@ -484,7 +503,7 @@ or retain:
 
 ---
 
-## [ ] Add project-defined windows
+## [x] Add project-defined windows
 
 Example conceptual configuration:
 
@@ -504,7 +523,7 @@ tms_window "test" "$PROJECT_ROOT"
 
 ---
 
-## [ ] Add project-defined panes
+## [x] Add project-defined panes
 
 Example:
 
@@ -547,7 +566,7 @@ CLI arguments
 
 # P1 — CLI Improvements
 
-## [ ] Support positional project arguments
+## [x] Support positional project arguments
 
 Desired UX:
 
@@ -585,7 +604,7 @@ tms ~/workspace/myproject
 
 ---
 
-## [ ] Improve `--new`
+## [x] Improve `--new`
 
 Current:
 
@@ -623,7 +642,7 @@ Rename `--new` if necessary to communicate that behavior.
 
 ---
 
-## [ ] Improve `--kill`
+## [x] Improve `--kill`
 
 Current:
 
@@ -640,7 +659,7 @@ tms --kill <session>
 
 ---
 
-## [ ] Rename `--remove` to `--forget`
+## [x] Rename `--remove` to `--forget`
 
 Current:
 
@@ -691,7 +710,7 @@ tms destroy foo
 
 ---
 
-## [ ] Improve help output
+## [x] Improve help output
 
 Current help is functional but minimal.
 
@@ -730,7 +749,7 @@ Examples:
 
 # P1 — FZF UX
 
-## [ ] Add FZF preview
+## [x] Add FZF preview
 
 Current picker only shows paths/session names.
 
@@ -836,7 +855,7 @@ searches tmux sessions.
 
 # P2 — `--prepare`
 
-## [ ] Make IDE window list configurable
+## [x] Make IDE window list configurable
 
 Current:
 
@@ -854,7 +873,7 @@ TMS_WINDOWS=(dev git build test llm)
 
 ---
 
-## [ ] Make `--prepare` project-aware
+## [x] Make `--prepare` project-aware
 
 Instead of assuming every project needs:
 
@@ -892,7 +911,7 @@ Python project:
 
 ---
 
-## [ ] Make `--prepare` idempotent
+## [x] Make `--prepare` idempotent
 
 Running:
 
@@ -911,7 +930,7 @@ twice should not create duplicate windows.
 
 ---
 
-## [ ] Explicitly target the current session
+## [x] Explicitly target the current session
 
 Don't rely on implicit tmux targets.
 
@@ -929,7 +948,7 @@ and explicitly target:
 
 ---
 
-## [ ] Make startup commands configurable
+## [x] Make startup commands configurable
 
 Current:
 
@@ -953,7 +972,7 @@ TMS_GIT_STARTUP="git status"
 
 # P2 — Code Cleanup
 
-## [ ] Remove unused pane cache code
+## [x] Remove unused pane cache code
 
 Currently present:
 
@@ -978,7 +997,7 @@ Do not keep abandoned infrastructure in the main script.
 
 ---
 
-## [ ] Investigate `session_cmd`
+## [x] Investigate `session_cmd`
 
 `hydrate()` contains:
 
@@ -1040,7 +1059,7 @@ save_sessions()
 
 ---
 
-## [ ] Add constants
+## [x] Add constants
 
 Potential:
 
@@ -1058,7 +1077,7 @@ TMS_DEFAULT_SEARCH_DEPTH=1
 
 ---
 
-## [ ] Use `$HOME` consistently
+## [x] Use `$HOME` consistently
 
 Instead of mixing:
 
@@ -1106,7 +1125,7 @@ Check:
 
 ---
 
-## [ ] Provide useful dependency errors
+## [x] Provide useful dependency errors
 
 Instead of:
 
@@ -1142,7 +1161,7 @@ Especially:
 
 ---
 
-## [ ] Add a logging/debug mode
+## [x] Add a logging/debug mode
 
 Potential:
 
@@ -1176,7 +1195,7 @@ Output:
 
 # P2 — Safety
 
-## [ ] Avoid arbitrary command execution from projects by default
+## [x] Avoid arbitrary command execution from projects by default
 
 `.tmux-sessionizer` is effectively executable project configuration.
 
@@ -1189,7 +1208,7 @@ Output:
 
 ---
 
-## [ ] Protect state/config files
+## [x] Protect state/config files
 
 Use:
 
@@ -1229,7 +1248,7 @@ Audit every invocation involving:
 
 # P3 — Architecture
 
-## [ ] Consider moving from flat script to subcommands
+## [x] Consider moving from flat script to subcommands
 
 Potential future CLI:
 
@@ -1280,7 +1299,7 @@ CLI
 
 # P3 — Session Reconciliation
 
-## [ ] Define desired state vs actual state
+## [x] Define desired state vs actual state
 
 Eventually `tms` should think in terms of:
 
@@ -1524,7 +1543,7 @@ shfmt
 
 # P4 — Documentation
 
-## [ ] Write a README
+## [x] Write a README
 
 Document:
 
@@ -1541,7 +1560,7 @@ Document:
 
 ---
 
-## [ ] Document configuration
+## [x] Document configuration
 
 Example:
 
@@ -1561,7 +1580,7 @@ and future configuration variables.
 
 ---
 
-## [ ] Document project configuration
+## [x] Document project configuration
 
 Example:
 
