@@ -165,6 +165,14 @@ sanitize_session_name() {
     printf '%s\n' "$name"
 }
 
+current_directory_session() {
+    # cksum is POSIX and produces a stable numeric identifier without relying
+    # on platform-specific md5/md5sum command names.
+    local hash
+    hash=$(printf '%s' "$PWD" | cksum | awk '{ print substr($1, 1, 8) }')
+    printf 'shell-%s\n' "$hash"
+}
+
 project_root() {
     local dir=$1 root
     root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && { printf '%s\n' "$root"; return; }
@@ -243,13 +251,19 @@ apply_project_config() {
 }
 
 prepare_session() {
-    [[ -n "${TMUX:-}" ]] || die "--prepare must be run inside tmux"
-    local session; session=$(tmux display-message -p '#S')
-    local root; root=$(tmux display-message -p -t "$session" '#{pane_current_path}')
+    local session root skip_project_config=${3:-0}
+    if (( $# >= 2 )); then
+        session=$1
+        root=$2
+    else
+        [[ -n "${TMUX:-}" ]] || die "prepare needs an active tmux session"
+        session=$(tmux display-message -p '#S')
+        root=$(tmux display-message -p -t "$session" '#{pane_current_path}')
+    fi
     TMS_SESSION=$session PROJECT_ROOT=$root
     local window
     for window in "${TMS_WINDOWS[@]}"; do tms_window "$window" "$root"; done
-    apply_project_config "$session" "$root"
+    (( skip_project_config == 1 )) || apply_project_config "$session" "$root"
     [[ -n "${TMS_GIT_STARTUP:-}" ]] && has_window "$session" git && tmux send-keys -t "$session:git" "$TMS_GIT_STARTUP" C-m
     tmux select-window -t "$session:${TMS_WINDOWS[0]}" 2>/dev/null || true
     printf 'Prepared tmux session %s.\n' "$session"
@@ -259,64 +273,115 @@ switch_to() { [[ -n "${TMUX:-}" ]] && tmux switch-client -t "$1" || tmux attach-
 
 show_help() {
     cat <<EOF
-Usage: tms [project] [options]
+Usage: tms [open] [PROJECT]
+       tms COMMAND [ARGUMENT] [OPTIONS]
 
-Open a directory or project name, or choose one with FZF. Inside tmux this
-switches the client; outside tmux it attaches.
+Open a project directly, or run tms with no arguments to choose one with FZF.
+A project may be a directory, ., or an unambiguous name in TS_SEARCH_PATHS.
+
+Commands:
+  open [PROJECT]          Open/create a project session (the default)
+  create NAME             Create/attach NAME in the current directory
+  new                     Create/attach shell-<8-digit-directory-hash>
+  list                    List live tmux sessions
+  save                    Atomically save windows, panes, indexes, and layouts
+  restore                 Idempotently reconcile saved state
+  state                   Print saved state
+  forget NAME             Remove NAME from saved state; leave it live
+  kill NAME               Kill a live session (asks for confirmation on a TTY)
+  prepare                 Apply the configured layout to the current tmux session
 
 Options:
-  -c, --create NAME       Create/attach NAME (using the current directory)
-  -n, --new               Create/attach the deterministic current-directory session
-  -l, --ls                List live sessions
-  -s, --save              Atomically save windows, panes, indexes, and layouts
-  -r, --restore           Idempotently reconcile saved state
-  -g, --get               Print the state file, if any
-  -x, --remove NAME       Alias for --forget NAME
-      --forget NAME       Remove NAME from saved state; leave it live
-  -k, --kill NAME         Kill a live session (asks on a TTY)
-      --force             Do not ask before --kill
-  -p, --prepare           Create missing configured windows in this tmux session
   -f, --full              Use a full-screen FZF picker
+      --force             Do not ask before kill
       --debug             Emit diagnostics to stderr
   -h, --help              Show this help
 
+Compatibility aliases: --create/-c, --new/-n, --ls/-l, --save/-s,
+--restore/-r, --get/-g, --forget/--remove/-x, --kill/-k, and --prepare/-p.
+
+Examples:
+  tms                     Choose a project or live session
+  tms open api            Open project named api (or create session api)
+  tms .                   Open the current directory
+  tms new                 Create/attach a deterministic shell-<hash> session
+  tms kill api --force    Kill api without a prompt
+  tms save && tms restore Save and later reconcile state
+
 Configuration: $TMS_CONFIG_FILE
 State file:    $TMUX_SESSION_FILE
-Search paths use TS_SEARCH_PATHS=("/path:depth" ...). Project configuration is
-.tmux-sessionizer; it only runs when TMS_TRUST_PROJECT_CONFIG=1 is set.
 EOF
 }
 
 main() {
     load_config
-    local action=open selected session dir
+    local action=open selected session dir command_seen=0
     while (( $# )); do
         case $1 in
-            -h|--help) show_help; return ;; -f|--full) FULLSCREEN_FZF=1 ;; --debug) TMS_DEBUG=1 ;;
-            --force) FORCE=1 ;; -s|--save) action=save ;; -r|--restore) action=restore ;;
-            -g|--get) action=get ;; -l|--ls) action=list ;; -p|--prepare) action=prepare ;;
-            -n|--new) PROJECT_ARGUMENT=$(pwd) ;;
-            -c|--create) shift; [[ $# -gt 0 ]] || die "$1 requires a name"; session=$1; dir=$(pwd); action=direct ;;
-            -k|--kill) shift; [[ $# -gt 0 ]] || die "--kill requires a name"; PROJECT_ARGUMENT=$1; action=kill ;;
-            -x|--remove|--forget) shift; [[ $# -gt 0 ]] || die "--forget requires a name"; PROJECT_ARGUMENT=$1; action=forget ;;
+            -h|--help|help) show_help; return ;;
+            -f|--full) FULLSCREEN_FZF=1 ;;
+            --debug) TMS_DEBUG=1 ;;
+            --force) FORCE=1 ;;
             --preview) shift; preview "${1:-}"; return ;;
-            -*) die "unknown option: $1" ;;
-            *) [[ -z "$PROJECT_ARGUMENT" ]] || die "only one project may be supplied"; PROJECT_ARGUMENT=$1 ;;
+            open) [[ $command_seen -eq 0 ]] || die "only one command may be supplied"; command_seen=1; action=open ;;
+            new|-n|--new) [[ $command_seen -eq 0 ]] || die "only one command may be supplied"; command_seen=1; action=direct; session=$(current_directory_session); dir=$(pwd) ;;
+            list|-l|--ls) action=list; command_seen=1 ;;
+            save|-s|--save) action=save; command_seen=1 ;;
+            restore|-r|--restore) action=restore; command_seen=1 ;;
+            state|get|-g|--get) action=get; command_seen=1 ;;
+            prepare|-p|--prepare) action=prepare; command_seen=1 ;;
+            create|-c|--create) shift; [[ $# -gt 0 ]] || die "create requires NAME"; session=$1; dir=$(pwd); action=direct; command_seen=1 ;;
+            kill|-k|--kill) shift; [[ $# -gt 0 ]] || die "kill requires NAME"; PROJECT_ARGUMENT=$1; action=kill; command_seen=1 ;;
+            forget|remove|-x|--remove|--forget) shift; [[ $# -gt 0 ]] || die "forget requires NAME"; PROJECT_ARGUMENT=$1; action=forget; command_seen=1 ;;
+            --) shift; [[ $# -le 1 ]] || die "only one project may be supplied"; PROJECT_ARGUMENT=${1:-}; break ;;
+            -*) die "unknown option: $1 (run 'tms help')" ;;
+            *)
+                [[ $action == open && -z "$PROJECT_ARGUMENT" ]] || die "unexpected argument: $1"
+                PROJECT_ARGUMENT=$1
+                ;;
         esac
         shift
     done
     case $action in
-        save) save_sessions; return ;; restore) restore_sessions; return ;;
+        save) save_sessions; return ;;
+        restore) restore_sessions; return ;;
         get) [[ -f "$TMUX_SESSION_FILE" ]] && cat "$TMUX_SESSION_FILE" || printf 'No saved state at %s.\n' "$TMUX_SESSION_FILE"; return ;;
         list) require_tmux; tmux list-sessions -F '#{session_name}' 2>/dev/null || true; return ;;
         forget) forget_session "$PROJECT_ARGUMENT"; return ;;
         kill) require_tmux; kill_session "$PROJECT_ARGUMENT"; return ;;
-        prepare) require_tmux; prepare_session; return ;;
+        prepare)
+            require_tmux
+            if [[ -n "${TMUX:-}" ]]; then
+                prepare_session
+            else
+                dir=$(pwd)
+                session=$(current_directory_session)
+                ensure_session "$session" "$dir"
+                # ensure_session already applies config for a newly created session.
+                prepare_session "$session" "$dir" 1
+                switch_to "$session"
+            fi
+            return ;;
     esac
     require_tmux
     if [[ $action == direct ]]; then ensure_session "$session" "$dir"; switch_to "$session"; return; fi
-    if [[ -n "$PROJECT_ARGUMENT" ]]; then dir=$(resolve_project "$PROJECT_ARGUMENT"); else selected=$(select_project); [[ -n "$selected" ]] || return; if [[ "$selected" == '[TMUX] '* ]]; then switch_to "${selected#\[TMUX\] }"; return; fi; dir=${selected#\[DIR\] }; fi
-    session=$(sanitize_session_name "$dir"); log "project=$dir session=$session"
+    if [[ -n "$PROJECT_ARGUMENT" ]]; then
+        # A positional name first resolves as a project. If it is not a known
+        # project, treat it as a direct session name in the current directory.
+        if dir=$(resolve_project "$PROJECT_ARGUMENT" 2>/dev/null); then
+            session=$(sanitize_session_name "$dir")
+        else
+            session=$PROJECT_ARGUMENT
+            dir=$(pwd)
+        fi
+    else
+        selected=$(select_project)
+        [[ -n "$selected" ]] || return
+        if [[ "$selected" == '[TMUX] '* ]]; then switch_to "${selected#\[TMUX\] }"; return; fi
+        dir=${selected#\[DIR\] }
+    fi
+    [[ -n "${session:-}" ]] || session=$(sanitize_session_name "$dir")
+    log "project=$dir session=$session"
     ensure_session "$session" "$dir"; switch_to "$session"
 }
 
